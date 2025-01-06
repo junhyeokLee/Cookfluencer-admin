@@ -6,6 +6,8 @@ import {
   updateDoc,
   deleteDoc,
   doc,
+  query,
+  where,
 } from "firebase/firestore";
 import { db } from "./firebase"; // Firebase 설정 가져오기
 import "./season.css"; // 스타일 파일 추가
@@ -20,16 +22,11 @@ const Season = () => {
     update_date: "",
   });
   const [editingSeason, setEditingSeason] = useState(null); // 수정 중인 항목
-  const [videos, setVideos] = useState([]); // 비디오 목록
-  const [currentSeasonId, setCurrentSeasonId] = useState(null); // 현재 선택된 시즌 ID
-  const [videoFormData, setVideoFormData] = useState({
-    title: "",
-    description: "",
-    thumbnail_url: "",
-  }); // 비디오 입력 데이터
-  const [allVideos, setAllVideos] = useState([]); // 전체 비디오 목록
-  const [isVideoPopupOpen, setIsVideoPopupOpen] = useState(false); // 비디오 팝업 상태
-
+  const [videos, setVideos] = useState([]); // 현재 시즌의 비디오 목록
+  const [currentSeasonId, setCurrentSeasonId] = useState(null); // 선택된 시즌 ID
+  const [isVideoDialogOpen, setIsVideoDialogOpen] = useState(false); // 검색 다이얼로그 상태
+  const [searchTerm, setSearchTerm] = useState(""); // 검색어
+  const [searchResults, setSearchResults] = useState([]); // 검색 결과
 
   const seasonCollectionRef = collection(db, "season");
 
@@ -39,7 +36,7 @@ const Season = () => {
     setSeasons(data.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
   };
 
-  // Firestore에서 비디오 데이터 가져오기
+  // Firestore에서 현재 시즌의 비디오 데이터 가져오기
   const fetchVideos = async (seasonId) => {
     if (!seasonId) return;
     const videoCollectionRef = collection(db, `season/${seasonId}/videos`);
@@ -47,17 +44,35 @@ const Season = () => {
     setVideos(data.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
   };
 
-  // 모든 비디오 검색
-    const fetchAllVideos = async () => {
-        const videoCollectionRef = collection(db, "videos"); // 비디오 컬렉션 경로
-        const data = await getDocs(videoCollectionRef);
-        return data.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
-    };
-    
+  // 비디오 검색
+  const searchVideos = async () => {
+    if (!searchTerm.trim()) {
+      setSearchResults([]); // 검색어가 없으면 결과 초기화
+      return;
+    }
+    const videoCollectionRef = collection(db, "videos");
+    const videoQuery = query(
+      videoCollectionRef,
+      where("title", ">=", searchTerm),
+      where("title", "<=", searchTerm + "\uf8ff")
+    );
+    const data = await getDocs(videoQuery);
+    setSearchResults(data.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
+  };
 
-  useEffect(() => {
-    fetchSeasons();
-  }, []);
+  // 검색된 비디오를 시즌에 추가
+  const addSelectedVideoToSeason = async (video) => {
+    if (!currentSeasonId) {
+      alert("시즌을 선택하세요.");
+      return;
+    }
+    const videoCollectionRef = collection(db, `season/${currentSeasonId}/videos`);
+    await addDoc(videoCollectionRef, video); // 선택된 비디오 추가
+    fetchVideos(currentSeasonId); // 비디오 목록 새로고침
+    setIsVideoDialogOpen(false); // 다이얼로그 닫기
+    setSearchTerm(""); // 검색어 초기화
+    setSearchResults([]); // 검색 결과 초기화
+  };
 
   // 시즌 추가
   const addSeason = async () => {
@@ -76,7 +91,7 @@ const Season = () => {
     fetchSeasons(); // 추가 후 새로고침
   };
 
-  // 시즌 수정
+  // 시즌 수정 저장
   const saveUpdatedSeason = async () => {
     if (editingSeason) {
       const seasonDoc = doc(db, "season", editingSeason.id);
@@ -101,39 +116,6 @@ const Season = () => {
     }
   };
 
-  // 비디오 추가
-  const addVideo = async () => {
-    if (!currentSeasonId) {
-      alert("시즌을 선택하세요.");
-      return;
-    }
-    const videoCollectionRef = collection(db, `season/${currentSeasonId}/videos`);
-    await addDoc(videoCollectionRef, videoFormData);
-    setVideoFormData({
-      title: "",
-      description: "",
-      thumbnail_url: "",
-    });
-    fetchVideos(currentSeasonId); // 비디오 목록 새로고침
-  };
-
-  const openVideoPopup = async () => {
-    const videos = await fetchAllVideos(); // 모든 비디오 가져오기
-    setAllVideos(videos); // 상태에 저장
-    setIsVideoPopupOpen(true); // 팝업 열기
-  };
-  
-  const addSelectedVideoToSeason = async (video) => {
-    if (!currentSeasonId) {
-      alert("시즌을 선택하세요.");
-      return;
-    }
-    const videoCollectionRef = collection(db, `season/${currentSeasonId}/videos`);
-    await addDoc(videoCollectionRef, video); // 선택된 비디오 추가
-    fetchVideos(currentSeasonId); // 비디오 목록 새로고침
-    setIsVideoPopupOpen(false); // 팝업 닫기
-  };
-  
   // 비디오 삭제
   const deleteVideo = async (videoId) => {
     if (!currentSeasonId) return;
@@ -141,6 +123,10 @@ const Season = () => {
     await deleteDoc(videoDocRef);
     fetchVideos(currentSeasonId); // 비디오 목록 새로고침
   };
+
+  useEffect(() => {
+    fetchSeasons(); // 초기 시즌 데이터 가져오기
+  }, []);
 
   return (
     <div className="season-container">
@@ -249,7 +235,10 @@ const Season = () => {
                     <button onClick={saveUpdatedSeason} className="save-button">
                       저장
                     </button>
-                    <button onClick={() => setEditingSeason(null)} className="cancel-button">
+                    <button
+                      onClick={() => setEditingSeason(null)}
+                      className="cancel-button"
+                    >
                       취소
                     </button>
                   </td>
@@ -280,7 +269,6 @@ const Season = () => {
                       onClick={() => {
                         setCurrentSeasonId(season.id);
                         fetchVideos(season.id);
-                         openVideoPopup();
                       }}
                       className="view-video-button"
                     >
@@ -294,73 +282,48 @@ const Season = () => {
         </tbody>
       </table>
 
-      {/* 비디오 관리 */}
+      {/* 현재 시즌 비디오 관리 */}
       {currentSeasonId && (
         <div className="video-management">
           <h2>비디오 관리</h2>
-          <div className="video-form">
-            <input
-              type="text"
-              placeholder="Video Title"
-              value={videoFormData.title}
-              onChange={(e) =>
-                setVideoFormData({ ...videoFormData, title: e.target.value })
-              }
-            />
-            <textarea
-              placeholder="Video Description"
-              value={videoFormData.description}
-              onChange={(e) =>
-                setVideoFormData({ ...videoFormData, description: e.target.value })
-              }
-            />
-            <input
-              type="text"
-              placeholder="Thumbnail URL"
-              value={videoFormData.thumbnail_url}
-              onChange={(e) =>
-                setVideoFormData({ ...videoFormData, thumbnail_url: e.target.value })
-              }
-            />
-            <button onClick={addVideo} className="add-video-button">
-              비디오 추가
-            </button>
-          </div>
+          <button onClick={() => setIsVideoDialogOpen(true)}>비디오 추가</button>
+          <ul>
+            {videos.map((video) => (
+              <li key={video.id}>
+                <h4>{video.title}</h4>
+                <p>{video.description}</p>
+                <img src={video.thumbnail_url} alt={video.title} width="100" />
+                <button onClick={() => deleteVideo(video.id)}>삭제</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
-          {/* 비디오 목록 */}
-          <table className="video-table">
-            <thead>
-              <tr>
-                <th>Title</th>
-                <th>Description</th>
-                <th>Thumbnail</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {videos.map((video) => (
-                <tr key={video.id}>
-                  <td>{video.title}</td>
-                  <td>{video.description}</td>
-                  <td>
-                    <img
-                      src={video.thumbnail_url}
-                      alt="Thumbnail"
-                      style={{ width: "100px" }}
-                    />
-                  </td>
-                  <td>
-                    <button
-                      onClick={() => deleteVideo(video.id)}
-                      className="delete-video-button"
-                    >
-                      삭제
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* 검색 다이얼로그 */}
+      {isVideoDialogOpen && (
+        <div className="video-dialog">
+          <h2>비디오 검색</h2>
+          <button onClick={() => setIsVideoDialogOpen(false)}>닫기</button>
+          <input
+            type="text"
+            placeholder="비디오 제목 검색"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          <button onClick={searchVideos}>검색</button>
+          <ul>
+            {searchResults.map((video) => (
+              <li key={video.id}>
+                <h4>{video.title}</h4>
+                <p>{video.description}</p>
+                <img src={video.thumbnail_url} alt={video.title} width="100" />
+                <button onClick={() => addSelectedVideoToSeason(video)}>
+                  추가
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

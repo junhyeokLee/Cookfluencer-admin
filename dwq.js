@@ -37,13 +37,11 @@ const RecipeManager = () => {
   const [selectedRecipeId, setSelectedRecipeId] = useState(null);
   const [selectedSubCollection, setSelectedSubCollection] = useState("");
   const [subCollectionData, setSubCollectionData] = useState([]);
-  const [newFields, setNewFields] = useState([]);
-
   const [isEditMode, setIsEditMode] = useState(false);
   const [isSubEditMode, setIsSubEditMode] = useState(false);
   const [open, setOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
-  
+
    // 초기 form 데이터 정의
    const initialFormData = {
     id: "",
@@ -74,27 +72,27 @@ const RecipeManager = () => {
     setRecipes(data.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
   }, []);
 
-    // 데이터 로드 및 초기화
-    useEffect(() => {
-      fetchRecipes();
-    }, [fetchRecipes]); // searchQuery 제거
+        // 데이터 로드 및 초기화
+        useEffect(() => {
+          fetchRecipes();
+        }, [fetchRecipes]); // searchQuery 제거
 
-    // // 검색어 변경 시 검색 로직 실행
-    useEffect(() => {
-      applySearch();
-    }, [searchQuery]); // 검색어 변경 시에만 실행
+        // // 검색어 변경 시 검색 로직 실행
+        useEffect(() => {
+          applySearch();
+        }, [searchQuery]); // 검색어 변경 시에만 실행
 
-    // 검색 버튼 또는 Enter 키 동작
-    const handleSearch = () => {
-      applySearch();
-    };
+        // 검색 버튼 또는 Enter 키 동작
+        const handleSearch = () => {
+          applySearch();
+        };
 
-    // Enter 키 이벤트 핸들러
-    const handleKeyPress = (event) => {
-      if (event.key === "Enter") {
-        handleSearch();
-      }
-    };
+        // Enter 키 이벤트 핸들러
+        const handleKeyPress = (event) => {
+          if (event.key === "Enter") {
+            handleSearch();
+          }
+        };
 
       // 검색 적용
       const applySearch = useCallback(() => {
@@ -149,98 +147,26 @@ const RecipeManager = () => {
     fetchRecipes();
   };
 
-
-  // 필드 추가
-  const handleAddField = () => {
-    setNewFields((prev) => [
-      ...prev,
-      { id: Date.now().toString(), name: "", volume: "", title: "", step: "", time: "" },
-    ]);
-  };
-
-    // 필드 값 변경
-    const handleFieldChange = (index, field, value, isNewField = true) => {
-      if (isNewField) {
-        setNewFields((prev) =>
-          prev.map((item, i) =>
-            i === index ? { ...item, [field]: value } : item
-          )
-        );
-      } else {
-        setSubCollectionData((prev) =>
-          prev.map((item, i) =>
-            i === index ? { ...item, [field]: value } : item
-          )
-        );
-      }
-    };
-
-  // 저장
-  const handleSaveAll = async () => {
-    // 새로운 데이터 저장
-    const newAddedFields = [];
-    for (const field of newFields) {
-      const subCollectionRef = collection(
-        db,
-        `recipe/${selectedRecipeId}/${selectedSubCollection}`
-      );
-      const docRef = await addDoc(subCollectionRef, field);
-      newAddedFields.push({ ...field, id: docRef.id });
-    }
-
-    // 기존 데이터 업데이트
-    for (const field of subCollectionData) {
-      const docRef = doc(
-        db,
-        `recipe/${selectedRecipeId}/${selectedSubCollection}`,
-        field.id
-      );
-      await updateDoc(docRef, field);
-    }
-
-    // 새로 추가된 데이터가 기존 데이터 리스트의 마지막에 위치하도록 정렬
-    setSubCollectionData((prev) => [...prev, ...newAddedFields]);
-
-    // 새 필드 초기화
-    setNewFields([]);
-  };
-
-  // 삭제
-  const handleDeleteField = async (id, isNewField = true) => {
-    if (isNewField) {
-      setNewFields((prev) => prev.filter((item) => item.id !== id));
-    } else {
-      const docRef = doc(
-        db,
-        `recipe/${selectedRecipeId}/${selectedSubCollection}`,
-        id
-      );
-      await deleteDoc(docRef);
-      fetchSubCollection(selectedRecipeId, selectedSubCollection);
-    }
-  };
-
-
   // 하위 데이터 저장
-  // const handleSubSave = async () => {
-  //   const subCollectionRef = collection(
-  //     db,
-  //     `recipe/${selectedRecipeId}/${selectedSubCollection}`
-  //   );
-  //   const subDocRef = isSubEditMode
-  //     ? doc(db, `recipe/${selectedRecipeId}/${selectedSubCollection}`, subFormData.id)
-  //     : subCollectionRef;
+  const handleSubSave = async () => {
+    const subCollectionRef = collection(
+      db,
+      `recipe/${selectedRecipeId}/${selectedSubCollection}`
+    );
+    const subDocRef = isSubEditMode
+      ? doc(db, `recipe/${selectedRecipeId}/${selectedSubCollection}`, subFormData.id)
+      : subCollectionRef;
 
-  //   const saveAction = isSubEditMode
-  //     ? updateDoc(subDocRef, subFormData)
-  //     : addDoc(subCollectionRef, subFormData);
+    const saveAction = isSubEditMode
+      ? updateDoc(subDocRef, subFormData)
+      : addDoc(subCollectionRef, subFormData);
 
-  //   await saveAction;
-  //   setIsSubEditMode(false);
-  //   setSubOpen(false);
-  //   setSubFormData(initialSubFormData);
-  //   fetchSubCollection(selectedRecipeId, selectedSubCollection);
-  // };
+    await saveAction;
+    setIsSubEditMode(false);
+    setSubOpen(false);
+    setSubFormData(initialSubFormData);
+    fetchSubCollection(selectedRecipeId, selectedSubCollection);
+  };
 
   const resetSubFormData = () => {
     setSubFormData({
@@ -515,115 +441,63 @@ const RecipeManager = () => {
         />
       </Box>
 
-
-      {/* 하위 컬렉션 관리 */}
       {selectedRecipeId && selectedSubCollection && (
-        <Box>
+        <Box sx={{ mt: 4 }}>
           <Typography variant="h5" gutterBottom>
             {selectedSubCollection} 관리
           </Typography>
-          <Paper sx={{ p: 2, mb: 2 }}>
-            {subCollectionData.map((data, index) => (
-              <Box
-                key={data.id}
-                sx={{ display: "flex", alignItems: "center", mb: 2 }}
-              >
-                <TextField
-                  label="이름/제목"
-                  value={data.name || data.title || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "name", e.target.value, false)
-                  }
-                  sx={{ flex: 1, mr: 2 }}
-                />
-                <TextField
-                  label="양/설명"
-                  value={data.volume || data.description || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "volume", e.target.value, false)
-                  }
-                  sx={{ flex: 2, mr: 2 }}
-                />
-                <TextField
-                  label="스텝"
-                  value={data.step || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "step", e.target.value, false)
-                  }
-                  sx={{ flex: 1, mr: 2 }}
-                />
-                <TextField
-                  label="시간"
-                  value={data.time || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "time", e.target.value, false)
-                  }
-                  sx={{ flex: 1, mr: 2 }}
-                />
-                <IconButton
-                  color="error"
-                  onClick={() => handleDeleteField(data.id, false)}
-                >
-                  <DeleteIcon />
-                </IconButton>
-              </Box>
-            ))}
-            {newFields.map((field, index) => (
-              <Box
-                key={field.id}
-                sx={{ display: "flex", alignItems: "center", mb: 2 }}
-              >
-                <TextField
-                  label="이름/제목"
-                  value={field.name || field.title || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "name", e.target.value, true)
-                  }
-                  sx={{ flex: 1, mr: 2 }}
-                />
-                <TextField
-                  label="양/설명"
-                  value={field.volume || field.description || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "volume", e.target.value, true)
-                  }
-                  sx={{ flex: 2, mr: 2 }}
-                />
-                <TextField
-                  label="스텝"
-                  value={field.step || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "step", e.target.value, true)
-                  }
-                  sx={{ flex: 1, mr: 2 }}
-                />
-                <TextField
-                  label="시간"
-                  value={field.time || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "time", e.target.value, true)
-                  }
-                  sx={{ flex: 1, mr: 2 }}
-                />
-                <IconButton
-                  color="error"
-                  onClick={() => handleDeleteField(field.id, true)}
-                >
-                  <DeleteIcon />
-                </IconButton>
-              </Box>
-            ))}
-          </Paper>
-          <Button variant="contained" onClick={handleAddField} sx={{ mr: 2 }}>
-            필드 추가
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => setSubOpen(true)}
+            sx={{ mb: 2 }}
+          >
+            새 데이터 추가
           </Button>
-          <Button variant="contained" color="primary" onClick={handleSaveAll}>
-            저장
-          </Button>
+          <TableContainer component={Paper}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>이름/제목</TableCell>
+                  <TableCell>설명/양</TableCell>
+                  <TableCell>스텝</TableCell>
+                  <TableCell>시간</TableCell>
+                  <TableCell>액션</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {subCollectionData.map((data) => (
+                  <TableRow key={data.id}>
+                    <TableCell>{data.name || data.title}</TableCell>
+                    <TableCell>{data.volume || data.description}</TableCell>
+                    <TableCell>{data.step}</TableCell>
+                    <TableCell>{data.time}</TableCell>
+                    <TableCell>
+                      <Button
+                        variant="outlined"
+                        color="secondary"
+                        onClick={() => handleSubEdit(data)}
+                        sx={{ mr: 1 }}
+                      >
+                        수정
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        onClick={() => handleSubDelete(data.id)}
+                      >
+                        삭제
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </Box>
       )}
 
-{/* 레시피 추가/수정 모달 */}
+      {/* 레시피 추가/수정 모달 */}
       <Modal open={open} onClose={handleClose}>
         <Box
           sx={{
@@ -715,10 +589,39 @@ const RecipeManager = () => {
         </Box>
       </Modal>
 
+      {/* 하위 컬렉션 추가/수정 모달 */}
+      <Modal open={subOpen} onClose={() => setSubOpen(false)}>
+        <Box
+          sx={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: 400,
+            bgcolor: "background.paper",
+            boxShadow: 24,
+            p: 4,
+            borderRadius: 2,
+          }}
+        >
+          <Typography variant="h6" gutterBottom>
+            {isSubEditMode ? "하위 데이터 수정" : "새 데이터 추가"}
+          </Typography>
+          {renderSubFields()}
+          <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+          <Button onClick={() => setSubOpen(false)}>취소</Button>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleSubSave}
+            >
+              저장
+            </Button>
+          </Box>
+        </Box>
+      </Modal>
     </Box>
-
   );
 };
-
 
 export default RecipeManager;

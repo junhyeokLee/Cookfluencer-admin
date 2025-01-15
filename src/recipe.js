@@ -57,16 +57,43 @@ const RecipeManager = () => {
   };
   const [formData, setFormData] = useState(initialFormData);
 
-  const initialSubFormData = {
-    id: "",
-    name: "",
-    volume: "",
-    title: "",
-    description: "",
-    step: "",
-    time: "",
-  };
-  const [subFormData, setSubFormData] = useState(initialSubFormData);
+  // const initialSubFormData = {
+  //   id: "",
+  //   name: "",
+  //   volume: "",
+  //   title: "",
+  //   description: "",
+  //   step: "",
+  //   time: "",
+  // };
+  // const [subFormData, setSubFormData] = useState(initialSubFormData);
+
+  // 1️⃣ 서브컬렉션 타입별 초기값 설정
+const getInitialSubFormData = (subCollection) => {
+  switch (subCollection) {
+    case "cooking_methods":
+      return {
+        title: "",
+        description: "",
+        step: 0,
+        time: "",
+      };
+    case "equipment":
+      return {
+        name: "",
+      };
+    case "ingredients":
+      return {
+        name: "",
+        volume: "",
+      };
+    default:
+      return {};
+  }
+};
+
+// 상태 초기화
+const [subFormData, setSubFormData] = useState(getInitialSubFormData(""));
 
  // Firebase 컬렉션 가져오기
   const fetchRecipes = useCallback(async () => {
@@ -136,90 +163,199 @@ const RecipeManager = () => {
 
   // Save recipe
   // 레시피 저장
-  const handleSave = async () => {
-    const recipeDocRef = isEditMode
-      ? doc(db, "recipe", formData.id)
-      : collection(db, "recipe");
-    const saveAction = isEditMode ? updateDoc(recipeDocRef, formData) : addDoc(recipeDocRef, formData);
+// ✅ 레시피 저장 (수정/추가)
+const handleSave = async () => {
+  const saveData = {
+    ...formData,
+    level: parseInt(formData.level, 10) || 0,  // 숫자형 변환
+  };
 
-    await saveAction;
+  try {
+    if (isEditMode) {
+      // 🔄 기존 레시피 수정
+      const recipeDocRef = doc(db, "recipe", formData.id);
+      await updateDoc(recipeDocRef, saveData);
+
+      // 🔥 UI 동기화: recipes 상태 직접 업데이트
+      setRecipes((prevRecipes) =>
+        prevRecipes.map((recipe) =>
+          recipe.id === formData.id ? { ...recipe, ...saveData } : recipe
+        )
+      );
+
+      setFilteredRecipes((prevRecipes) =>
+        prevRecipes.map((recipe) =>
+          recipe.id === formData.id ? { ...recipe, ...saveData } : recipe
+        )
+      );
+
+    } else {
+      // ➕ 새 레시피 추가
+      const docRef = await addDoc(collection(db, "recipe"), saveData);
+      setRecipes((prevRecipes) => [
+        { ...saveData, id: docRef.id },
+        ...prevRecipes,
+      ]);
+      setFilteredRecipes((prevRecipes) => [
+        { ...saveData, id: docRef.id },
+        ...prevRecipes,
+      ]);
+    }
+
     setIsEditMode(false);
     setOpen(false);
     setFormData(initialFormData);
-    fetchRecipes();
-  };
+
+  } catch (error) {
+    console.error("레시피 저장 실패:", error);
+  }
+};
+
+// ✅ 레시피 삭제
+const handleDelete = async (id) => {
+  if (window.confirm("정말 삭제하시겠습니까?")) {
+    try {
+      const recipeDocRef = doc(db, "recipe", id);
+      await deleteDoc(recipeDocRef);
+
+      // 🔥 UI 동기화: 삭제된 레시피 즉시 반영
+      setRecipes((prevRecipes) => prevRecipes.filter((recipe) => recipe.id !== id));
+      setFilteredRecipes((prevRecipes) =>
+        prevRecipes.filter((recipe) => recipe.id !== id)
+      );
+
+    } catch (error) {
+      console.error("레시피 삭제 실패:", error);
+    }
+  }
+};
 
 
   // 필드 추가
-  const handleAddField = () => {
-    setNewFields((prev) => [
-      ...prev,
-      { id: Date.now().toString(), name: "", volume: "", title: "", step: "", time: "" },
-    ]);
-  };
+// 1️⃣ 서브컬렉션별 필드 추가
+const handleAddField = () => {
+  if (!selectedSubCollection) {
+    alert("서브컬렉션을 선택해주세요.");
+    //r
+    return;
+  }
 
-    // 필드 값 변경
-    const handleFieldChange = (index, field, value, isNewField = true) => {
-      if (isNewField) {
-        setNewFields((prev) =>
-          prev.map((item, i) =>
-            i === index ? { ...item, [field]: value } : item
-          )
-        );
-      } else {
-        setSubCollectionData((prev) =>
-          prev.map((item, i) =>
-            i === index ? { ...item, [field]: value } : item
-          )
-        );
-      }
-    };
+  let newField = {};
+
+  switch (selectedSubCollection) {
+    case "cooking_methods":
+      newField = { title: "", description: "", step: 0, time: "" };
+      break;
+    case "equipment":
+      newField = { name: "" };
+      break;
+    case "ingredients":
+      newField = { name: "", volume: "" };
+      break;
+    default:
+      newField = {};
+  }
+
+  setNewFields((prev) => [...prev, newField]);
+};
+
+
+
+  const handleFieldChange = (index, field, value, isNewField = true) => {
+    if (field === "step") {
+      value = parseInt(value, 10) || 0;
+    }
+
+    const target = isNewField ? newFields : subCollectionData;
+    const updatedFields = target.map((item, i) =>
+      i === index ? { ...item, [field]: value } : item
+    );
+
+    isNewField ? setNewFields(updatedFields) : setSubCollectionData(updatedFields);
+  };
 
   // 저장
+  // 3️⃣ 서브컬렉션별 저장 로직
   const handleSaveAll = async () => {
-    // 새로운 데이터 저장
-    const newAddedFields = [];
+    if (!selectedRecipeId || !selectedSubCollection) {
+      alert("레시피와 서브컬렉션을 선택해주세요.");
+      return;
+    }
+  
+    // 새로 추가된 필드 저장
     for (const field of newFields) {
-      const subCollectionRef = collection(
-        db,
-        `recipe/${selectedRecipeId}/${selectedSubCollection}`
-      );
-      const docRef = await addDoc(subCollectionRef, field);
-      newAddedFields.push({ ...field, id: docRef.id });
+      let preparedField = {};
+  
+      // 서브컬렉션 타입에 따라 저장할 데이터 구조를 정의
+      switch (selectedSubCollection) {
+        case "cooking_methods":
+          preparedField = {
+            title: field.title || "",
+            description: field.description || "",
+            step: parseInt(field.step, 10) || 0,
+            time: field.time || "",
+          };
+          break;
+  
+        case "equipment":
+          preparedField = {
+            name: field.name || "",
+          };
+          break;
+  
+        case "ingredients":
+          preparedField = {
+            name: field.name || "",
+            volume: field.volume || "",
+          };
+          break;
+  
+        default:
+          console.error("유효하지 않은 서브컬렉션입니다.");
+          return;
+      }
+  
+      try {
+        const subCollectionRef = collection(db, `recipe/${selectedRecipeId}/${selectedSubCollection}`);
+        await addDoc(subCollectionRef, preparedField);
+      } catch (error) {
+        console.error("서브컬렉션 저장 실패:", error);
+      }
     }
-
-    // 기존 데이터 업데이트
+  
+    // 기존 필드 업데이트
     for (const field of subCollectionData) {
-      const docRef = doc(
-        db,
-        `recipe/${selectedRecipeId}/${selectedSubCollection}`,
-        field.id
-      );
-      await updateDoc(docRef, field);
+      try {
+        const docRef = doc(db, `recipe/${selectedRecipeId}/${selectedSubCollection}`, field.id);
+        await updateDoc(docRef, field);
+      } catch (error) {
+        console.error("서브컬렉션 업데이트 실패:", error);
+      }
     }
-
-    // 새로 추가된 데이터가 기존 데이터 리스트의 마지막에 위치하도록 정렬
-    setSubCollectionData((prev) => [...prev, ...newAddedFields]);
-
-    // 새 필드 초기화
+  
+    // 저장 후 상태 초기화 및 데이터 갱신
     setNewFields([]);
+    fetchSubCollection(selectedRecipeId, selectedSubCollection);
+    alert("저장이 완료되었습니다.");
   };
+  
+
 
   // 삭제
-  const handleDeleteField = async (id, isNewField = true) => {
+  const handleDeleteField = async (id, isNewField) => {
     if (isNewField) {
-      setNewFields((prev) => prev.filter((item) => item.id !== id));
+      setNewFields((prev) => prev.filter((_, index) => index !== id));
     } else {
-      const docRef = doc(
-        db,
-        `recipe/${selectedRecipeId}/${selectedSubCollection}`,
-        id
-      );
-      await deleteDoc(docRef);
-      fetchSubCollection(selectedRecipeId, selectedSubCollection);
+      try {
+        const docRef = doc(db, `recipe/${selectedRecipeId}/${selectedSubCollection}`, id);
+        await deleteDoc(docRef);
+        fetchSubCollection(selectedRecipeId, selectedSubCollection);
+      } catch (error) {
+        console.error("삭제 실패:", error);
+      }
     }
   };
-
+  
 
   // 하위 데이터 저장
   // const handleSubSave = async () => {
@@ -241,6 +377,57 @@ const RecipeManager = () => {
   //   setSubFormData(initialSubFormData);
   //   fetchSubCollection(selectedRecipeId, selectedSubCollection);
   // };
+  // 하위 컬렉션 저장
+const handleSubSave = async () => {
+  const subCollectionRef = collection(
+    db,
+    `recipe/${selectedRecipeId}/${selectedSubCollection}`
+  );
+
+  let saveData = {};
+
+  switch (selectedSubCollection) {
+    case "cooking_methods":
+      saveData = {
+        title: subFormData.title,
+        description: subFormData.description,
+        step: parseInt(subFormData.step, 10) || 0,
+        time: subFormData.time,
+      };
+      break;
+
+    case "equipment":
+      saveData = {
+        name: subFormData.name,
+      };
+      break;
+
+    case "ingredients":
+      saveData = {
+        name: subFormData.name,
+        volume: subFormData.volume,
+      };
+      break;
+
+    default:
+      return;
+  }
+
+  // 새 데이터 추가 또는 수정
+  const docRef = isSubEditMode
+  ? doc(db, `recipe/${selectedRecipeId}/${selectedSubCollection}`, subFormData.id)
+  : subCollectionRef;
+
+  const saveAction = isSubEditMode ? updateDoc(docRef, saveData) : addDoc(subCollectionRef, saveData);
+
+  await saveAction;
+
+  setIsSubEditMode(false);
+  setSubOpen(false);
+  setSubFormData(getInitialSubFormData(selectedSubCollection));
+  fetchSubCollection(selectedRecipeId, selectedSubCollection);
+  };
+
 
   const resetSubFormData = () => {
     setSubFormData({
@@ -254,99 +441,87 @@ const RecipeManager = () => {
     });
   };
 
-  // Render fields for sub-collection modal
-  const renderSubFields = () => {
-    if (selectedSubCollection === "equipment") {
-      return (
-        <>
-          <TextField
-            label="이름"
-            fullWidth
-            value={subFormData.name}
-            onChange={(e) =>
-              setSubFormData({ ...subFormData, name: e.target.value })
-            }
-            sx={{ mb: 2 }}
-          />
-        </>
-      );
-    } else if (selectedSubCollection === "ingredients") {
-      return (
-        <>
-          <TextField
-            label="이름"
-            fullWidth
-            value={subFormData.name}
-            onChange={(e) =>
-              setSubFormData({ ...subFormData, name: e.target.value })
-            }
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            label="양/설명"
-            fullWidth
-            multiline
-            value={subFormData.volume}
-            onChange={(e) =>
-              setSubFormData({ ...subFormData, volume: e.target.value })
-            }
-            sx={{ mb: 2 }}
-          />
-        </>
-      );
-    } else if (selectedSubCollection === "cooking_methods") {
-      return (
-        <>
-          <TextField
-            label="제목"
-            fullWidth
-            value={subFormData.title}
-            onChange={(e) =>
-              setSubFormData({ ...subFormData, title: e.target.value })
-            }
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            label="설명"
-            fullWidth
-            multiline
-            value={subFormData.description}
-            onChange={(e) =>
-              setSubFormData({ ...subFormData, description: e.target.value })
-            }
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            label="스텝"
-            fullWidth
-            type="number"
-            value={subFormData.step}
-            onChange={(e) =>
-              setSubFormData({ ...subFormData, step: e.target.value })
-            }
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            label="시간"
-            fullWidth
-            value={subFormData.time}
-            onChange={(e) =>
-              setSubFormData({ ...subFormData, time: e.target.value })
-            }
-            sx={{ mb: 2 }}
-          />
-        </>
-      );
+// 2️⃣ 서브컬렉션별 입력 필드 렌더링
+const renderSubFields = () => {
+  return newFields.map((field, index) => {
+    switch (selectedSubCollection) {
+      case "cooking_methods":
+        return (
+          <Box key={field.title} sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+            <TextField
+              label="제목"
+              value={field.title}
+              onChange={(e) => handleFieldChange(index, "title", e.target.value)}
+              sx={{ flex: 1, mr: 2 }}
+            />
+            <TextField
+              label="설명"
+              value={field.description}
+              onChange={(e) => handleFieldChange(index, "description", e.target.value)}
+              sx={{ flex: 2, mr: 2 }}
+            />
+            <TextField
+              label="스텝"
+              type="number"
+              value={field.step}
+              onChange={(e) => handleFieldChange(index, "step", parseInt(e.target.value, 10))}
+              sx={{ flex: 1, mr: 2 }}
+            />
+            <TextField
+              label="시간"
+              value={field.time}
+              onChange={(e) => handleFieldChange(index, "time", e.target.value)}
+              sx={{ flex: 1, mr: 2 }}
+            />
+            <IconButton color="error" onClick={() => handleDeleteField(field.id, true)}>
+              <DeleteIcon />
+            </IconButton>
+          </Box>
+        );
+
+      case "equipment":
+        return (
+          <Box key={field.name} sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+            <TextField
+              label="도구 이름"
+              value={field.name}
+              onChange={(e) => handleFieldChange(index, "name", e.target.value)}
+              sx={{ flex: 1, mr: 2 }}
+            />
+            <IconButton color="error" onClick={() => handleDeleteField(field.id, true)}>
+              <DeleteIcon />
+            </IconButton>
+          </Box>
+        );
+
+      case "ingredients":
+        return (
+          <Box key={field.name} sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+            <TextField
+              label="재료 이름"
+              value={field.name}
+              onChange={(e) => handleFieldChange(index, "name", e.target.value)}
+              sx={{ flex: 1, mr: 2 }}
+            />
+            <TextField
+              label="양"
+              value={field.volume}
+              onChange={(e) => handleFieldChange(index, "volume", e.target.value)}
+              sx={{ flex: 1, mr: 2 }}
+            />
+            <IconButton color="error" onClick={() => handleDeleteField(field.id, true)}>
+              <DeleteIcon />
+            </IconButton>
+          </Box>
+        );
+
+      default:
+        return null;
     }
-    return null;
-  };
-  
-  // Delete recipe
-  const handleDelete = async (id) => {
-    const recipeDoc = doc(db, "recipe", id);
-    await deleteDoc(recipeDoc);
-    fetchRecipes();
-  };
+  });
+};
+
+
 
   // Delete sub-collection data
   const handleSubDelete = async (id) => {
@@ -379,7 +554,7 @@ const RecipeManager = () => {
   const handleSubClose = () => {
     setSubOpen(false);
     setIsSubEditMode(false);
-    setSubFormData(initialSubFormData);
+    setSubFormData(getInitialSubFormData);
   };
 
     // Pagination에서 잘못된 페이지를 방지
@@ -523,103 +698,144 @@ const RecipeManager = () => {
             {selectedSubCollection} 관리
           </Typography>
           <Paper sx={{ p: 2, mb: 2 }}>
-            {subCollectionData.map((data, index) => (
-              <Box
-                key={data.id}
-                sx={{ display: "flex", alignItems: "center", mb: 2 }}
-              >
-                <TextField
-                  label="이름/제목"
-                  value={data.name || data.title || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "name", e.target.value, false)
-                  }
-                  sx={{ flex: 1, mr: 2 }}
-                />
-                <TextField
-                  label="양/설명"
-                  value={data.volume || data.description || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "volume", e.target.value, false)
-                  }
-                  sx={{ flex: 2, mr: 2 }}
-                />
-                <TextField
-                  label="스텝"
-                  value={data.step || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "step", e.target.value, false)
-                  }
-                  sx={{ flex: 1, mr: 2 }}
-                />
-                <TextField
-                  label="시간"
-                  value={data.time || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "time", e.target.value, false)
-                  }
-                  sx={{ flex: 1, mr: 2 }}
-                />
-                <IconButton
-                  color="error"
-                  onClick={() => handleDeleteField(data.id, false)}
-                >
-                  <DeleteIcon />
-                </IconButton>
-              </Box>
-            ))}
-            {newFields.map((field, index) => (
-              <Box
-                key={field.id}
-                sx={{ display: "flex", alignItems: "center", mb: 2 }}
-              >
-                <TextField
-                  label="이름/제목"
-                  value={field.name || field.title || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "name", e.target.value, true)
-                  }
-                  sx={{ flex: 1, mr: 2 }}
-                />
-                <TextField
-                  label="양/설명"
-                  value={field.volume || field.description || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "volume", e.target.value, true)
-                  }
-                  sx={{ flex: 2, mr: 2 }}
-                />
-                <TextField
-                  label="스텝"
-                  value={field.step || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "step", e.target.value, true)
-                  }
-                  sx={{ flex: 1, mr: 2 }}
-                />
-                <TextField
-                  label="시간"
-                  value={field.time || ""}
-                  onChange={(e) =>
-                    handleFieldChange(index, "time", e.target.value, true)
-                  }
-                  sx={{ flex: 1, mr: 2 }}
-                />
-                <IconButton
-                  color="error"
-                  onClick={() => handleDeleteField(field.id, true)}
-                >
-                  <DeleteIcon />
-                </IconButton>
-              </Box>
-            ))}
-          </Paper>
+  {subCollectionData.map((data, index) => (
+    <Box key={data.id} sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+      {selectedSubCollection === "ingredients" && (
+        <>
+          <TextField
+            label="재료 이름"
+            value={data.name || ""}
+            onChange={(e) => handleFieldChange(index, "name", e.target.value, false)}
+            sx={{ flex: 1, mr: 2 }}
+          />
+          <TextField
+            label="양"
+            value={data.volume || ""}
+            onChange={(e) => handleFieldChange(index, "volume", e.target.value, false)}
+            sx={{ flex: 1, mr: 2 }}
+          />
+        </>
+      )}
+
+      {selectedSubCollection === "equipment" && (
+        <TextField
+          label="도구 이름"
+          value={data.name || ""}
+          onChange={(e) => handleFieldChange(index, "name", e.target.value, false)}
+          sx={{ flex: 1, mr: 2 }}
+        />
+      )}
+
+      {selectedSubCollection === "cooking_methods" && (
+        <>
+          <TextField
+            label="제목"
+            value={data.title || ""}
+            onChange={(e) => handleFieldChange(index, "title", e.target.value, false)}
+            sx={{ flex: 1, mr: 2 }}
+          />
+          <TextField
+            label="설명"
+            value={data.description || ""}
+            onChange={(e) => handleFieldChange(index, "description", e.target.value, false)}
+            sx={{ flex: 2, mr: 2 }}
+          />
+          <TextField
+            label="스텝"
+            type="number"
+            value={data.step || ""}
+            onChange={(e) => handleFieldChange(index, "step", e.target.value, false)}
+            sx={{ flex: 1, mr: 2 }}
+          />
+          <TextField
+            label="시간"
+            value={data.time || ""}
+            onChange={(e) => handleFieldChange(index, "time", e.target.value, false)}
+            sx={{ flex: 1, mr: 2 }}
+          />
+        </>
+      )}
+
+      <IconButton color="error" onClick={() => handleDeleteField(data.id, false)}>
+        <DeleteIcon />
+      </IconButton>
+    </Box>
+  ))}
+
+  {/* 새 필드 추가 */}
+  {newFields.map((field, index) => (
+    <Box key={index} sx={{ display: "flex", alignItems: "center", mb: 2 }}>
+      {selectedSubCollection === "ingredients" && (
+        <>
+          <TextField
+            label="재료 이름"
+            value={field.name || ""}
+            onChange={(e) => handleFieldChange(index, "name", e.target.value, true)}
+            sx={{ flex: 1, mr: 2 }}
+          />
+          <TextField
+            label="양"
+            value={field.volume || ""}
+            onChange={(e) => handleFieldChange(index, "volume", e.target.value, true)}
+            sx={{ flex: 1, mr: 2 }}
+          />
+        </>
+      )}
+
+      {selectedSubCollection === "equipment" && (
+        <TextField
+          label="도구 이름"
+          value={field.name || ""}
+          onChange={(e) => handleFieldChange(index, "name", e.target.value, true)}
+          sx={{ flex: 1, mr: 2 }}
+        />
+      )}
+
+      {selectedSubCollection === "cooking_methods" && (
+        <>
+          <TextField
+            label="제목"
+            value={field.title || ""}
+            onChange={(e) => handleFieldChange(index, "title", e.target.value, true)}
+            sx={{ flex: 1, mr: 2 }}
+          />
+          <TextField
+            label="설명"
+            value={field.description || ""}
+            onChange={(e) => handleFieldChange(index, "description", e.target.value, true)}
+            sx={{ flex: 2, mr: 2 }}
+          />
+          <TextField
+            label="스텝"
+            type="number"
+            value={field.step || ""}
+            onChange={(e) => handleFieldChange(index, "step", e.target.value, true)}
+            sx={{ flex: 1, mr: 2 }}
+          />
+          <TextField
+            label="시간"
+            value={field.time || ""}
+            onChange={(e) => handleFieldChange(index, "time", e.target.value, true)}
+            sx={{ flex: 1, mr: 2 }}
+          />
+        </>
+      )}
+
+      <IconButton color="error" onClick={() => handleDeleteField(field.id, true)}>
+        <DeleteIcon />
+      </IconButton>
+    </Box>
+  ))}
+</Paper>
+
+
           <Button variant="contained" onClick={handleAddField} sx={{ mr: 2 }}>
             필드 추가
           </Button>
           <Button variant="contained" color="primary" onClick={handleSaveAll}>
             저장
           </Button>
+          {renderSubFields()}
         </Box>
       )}
 
@@ -683,7 +899,7 @@ const RecipeManager = () => {
             type="number"
             value={formData.level}
             onChange={(e) =>
-              setFormData({ ...formData, level: e.target.value })
+              setFormData({ ...formData, level: parseInt(e.target.value, 10) || 0 })
             }
             sx={{ mb: 2 }}
           />
